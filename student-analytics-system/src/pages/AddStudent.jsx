@@ -15,8 +15,7 @@ import {
   TableRow,
   Alert
 } from "@mui/material";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:1234";
+import { api, isUnauthorizedError } from "../api/http";
 
 function AddStudent() {
   const [students, setStudents] = useState([]);
@@ -45,26 +44,10 @@ function AddStudent() {
   const fetchStudents = async () => {
     try {
       setError("");
-      const res = await fetch(`${API_BASE}/api/students`, {
-        headers: getAuthHeaders()
-      });
-
-      if (res.status === 401) return handleUnauthorized();
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`);
-      }
-
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`Expected JSON but got: ${txt.slice(0, 120)}`);
-      }
-
-      const data = await res.json();
+      const { data } = await api.get("/api/students", { headers: getAuthHeaders() });
       setStudents(Array.isArray(data) ? data : []);
     } catch (e) {
+      if (isUnauthorizedError(e)) return handleUnauthorized();
       console.error("Failed to fetch students:", e);
       setStudents([]);
       setError("Could not load students.");
@@ -97,26 +80,13 @@ function AddStudent() {
       setError("");
       setSuccess("");
 
-      const res = await fetch(`${API_BASE}/api/students`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders()
-        },
-        body: JSON.stringify(formData)
-      });
-
-      if (res.status === 401) return handleUnauthorized();
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`);
-      }
+      await api.post("/api/students", formData, { headers: getAuthHeaders() });
 
       setSuccess("Student added successfully.");
       setFormData({ name: "", email: "", roll: "", className: "" });
       fetchStudents();
     } catch (e) {
+      if (isUnauthorizedError(e)) return handleUnauthorized();
       console.error("Add student failed:", e);
       setError("Failed to add student.");
       setSuccess("");

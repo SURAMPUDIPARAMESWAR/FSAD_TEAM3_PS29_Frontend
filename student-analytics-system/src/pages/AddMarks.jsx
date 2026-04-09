@@ -13,6 +13,7 @@ import {
   Button,
   Alert
 } from "@mui/material";
+import { api, isUnauthorizedError } from "../api/http";
 
 const subjectsList = ["Math", "Science", "English", "History"];
 
@@ -48,15 +49,10 @@ function AddMarks() {
 
   const fetchStudents = async () => {
     try {
-      const res = await fetch("http://localhost:1234/api/students", {
-        headers: getAuthHeaders()
-      });
-
-      if (res.status === 401) return handleUnauthorized();
-
-      const data = await res.json();
+      const { data } = await api.get("/api/students", { headers: getAuthHeaders() });
       setStudents(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (isUnauthorizedError(err)) return handleUnauthorized();
       console.error(err);
       setStudents([]);
     }
@@ -64,15 +60,10 @@ function AddMarks() {
 
   const fetchMarks = async () => {
     try {
-      const res = await fetch("http://localhost:1234/api/marks", {
-        headers: getAuthHeaders()
-      });
-
-      if (res.status === 401) return handleUnauthorized();
-
-      const data = await res.json();
+      const { data } = await api.get("/api/marks", { headers: getAuthHeaders() });
       setMarks(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (isUnauthorizedError(err)) return handleUnauthorized();
       console.error(err);
       setMarks([]);
     }
@@ -107,22 +98,7 @@ function AddMarks() {
         score: Number(formData.marksObtained)
       };
 
-      const res = await fetch("http://localhost:1234/api/marks", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAuthHeaders()
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (res.status === 401) return handleUnauthorized();
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        alert(errData?.message || "Failed to add marks");
-        return;
-      }
+      await api.post("/api/marks", payload, { headers: getAuthHeaders() });
 
       alert("Marks added successfully!");
       setFormData({
@@ -177,14 +153,11 @@ function AddMarks() {
 
         if (!email || !subject || Number.isNaN(score)) continue;
 
-        await fetch("http://localhost:1234/api/marks", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
-          },
-          body: JSON.stringify({ email, subject, score, examType: examType || "Midterm 1" })
-        });
+        await api.post(
+          "/api/marks",
+          { email, subject, score, examType: examType || "Midterm 1" },
+          { headers: getAuthHeaders() }
+        );
       }
 
       alert("CSV upload processed");

@@ -33,9 +33,9 @@ import {
   Tooltip,
   ResponsiveContainer
 } from "recharts";
+import { api, isUnauthorizedError } from "../api/http";
 
 const subjects = ["Math", "Science", "English", "History"];
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:1234";
 
 function AdminStudentInsights() {
   const [students, setStudents] = useState([]);
@@ -58,25 +58,24 @@ function AdminStudentInsights() {
   };
 
   const fetchJson = async (url) => {
-    const res = await fetch(url, { headers: getAuthHeaders() });
+    try {
+      const res = await api.get(url, { headers: getAuthHeaders() });
+      return res.data;
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        handleUnauthorized();
+        return [];
+      }
 
-    if (res.status === 401) {
-      handleUnauthorized();
-      return [];
+      const text = error?.response?.data;
+      const message =
+        typeof text === "string"
+          ? text.slice(0, 120)
+          : error?.response?.status
+            ? `HTTP ${error.response.status}`
+            : error?.message || "Request failed";
+      throw new Error(message);
     }
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${text.slice(0, 120)}`);
-    }
-
-    const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Expected JSON but received: ${text.slice(0, 120)}`);
-    }
-
-    return res.json();
   };
 
   useEffect(() => {
@@ -84,8 +83,8 @@ function AdminStudentInsights() {
       try {
         setDataError("");
         const [studentsData, marksData] = await Promise.all([
-          fetchJson(`${API_BASE}/api/students`),
-          fetchJson(`${API_BASE}/api/marks`)
+          fetchJson("/api/students"),
+          fetchJson("/api/marks")
         ]);
 
         setStudents(Array.isArray(studentsData) ? studentsData : []);

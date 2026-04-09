@@ -9,8 +9,7 @@ import {
   TextField,
   Button
 } from "@mui/material";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:1234";
+import { api } from "../api/http";
 
 function Login() {
 
@@ -23,15 +22,7 @@ function Login() {
   const handleLogin = async () => {
 
     try {
-      const res = await fetch(`${API_BASE}/api/users/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ email, password })
-      });
-
-      const data = await res.json();
+      const { data } = await api.post("/api/users/login", { email, password });
 
       if (!data) {
         alert("Invalid credentials");

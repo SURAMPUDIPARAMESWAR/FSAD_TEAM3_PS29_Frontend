@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { api, isUnauthorizedError } from "../api/http";
 
 const DataContext = createContext();
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:1234";
 
 export const DataProvider = ({ children }) => {
   const [students, setStudents] = useState([]);
@@ -29,24 +29,23 @@ export const DataProvider = ({ children }) => {
 
   const fetchJson = useCallback(
     async (url) => {
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      try {
+        const res = await api.get(url, { headers: getAuthHeaders() });
+        return res.data;
+      } catch (error) {
+        if (isUnauthorizedError(error)) {
+          throw new Error("HTTP 401: Unauthorized");
+        }
 
-      if (res.status === 401) {
-        throw new Error("HTTP 401: Unauthorized");
+        const text = error?.response?.data;
+        const message =
+          typeof text === "string"
+            ? text.slice(0, 120)
+            : error?.response?.status
+              ? `HTTP ${error.response.status}`
+              : error?.message || "Request failed";
+        throw new Error(message);
       }
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${text.slice(0, 120)}`);
-      }
-
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`Expected JSON but received: ${text.slice(0, 120)}`);
-      }
-
-      return res.json();
     },
     [getAuthHeaders]
   );
@@ -64,9 +63,9 @@ export const DataProvider = ({ children }) => {
     try {
       setError("");
       const [studentsRes, marksRes, attendanceRes] = await Promise.allSettled([
-        fetchJson(`${API_BASE}/api/students`).catch(() => []),
-        fetchJson(`${API_BASE}/api/marks`).catch(() => []),
-        fetchJson(`${API_BASE}/api/attendance`).catch(() => [])
+        fetchJson("/api/students").catch(() => []),
+        fetchJson("/api/marks").catch(() => []),
+        fetchJson("/api/attendance").catch(() => [])
       ]);
 
       const studentsData = studentsRes.status === "fulfilled" ? studentsRes.value : [];
@@ -93,44 +92,17 @@ export const DataProvider = ({ children }) => {
   }, [authToken, refreshAll]);
 
   const addStudent = async (student) => {
-    const res = await fetch(`${API_BASE}/api/students`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify(student)
-    });
-
-    if (!res.ok) throw new Error("Failed to add student");
+    await api.post("/api/students", student, { headers: getAuthHeaders() });
     await refreshAll();
   };
 
   const addMarks = async (mark) => {
-    const res = await fetch(`${API_BASE}/api/marks`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify(mark)
-    });
-
-    if (!res.ok) throw new Error("Failed to add marks");
+    await api.post("/api/marks", mark, { headers: getAuthHeaders() });
     await refreshAll();
   };
 
   const addAttendance = async (record) => {
-    const res = await fetch(`${API_BASE}/api/attendance`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify(record)
-    });
-
-    if (!res.ok) throw new Error("Failed to add attendance");
+    await api.post("/api/attendance", record, { headers: getAuthHeaders() });
     await refreshAll();
   };
 

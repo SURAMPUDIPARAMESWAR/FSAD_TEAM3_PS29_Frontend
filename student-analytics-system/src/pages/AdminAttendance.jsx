@@ -25,8 +25,8 @@ import {
   DialogContent
 } from "@mui/material";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import { api, isUnauthorizedError } from "../api/http";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:1234";
 const DEFAULT_SUBJECTS = ["Math", "Science", "English", "History"];
 
 const normalizeSubject = (value) => {
@@ -80,31 +80,30 @@ function AdminAttendance() {
   };
 
   const fetchJson = async (url) => {
-    const res = await fetch(url, { headers: getAuthHeaders() });
+    try {
+      const res = await api.get(url, { headers: getAuthHeaders() });
+      return res.data;
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        handleUnauthorized();
+        return [];
+      }
 
-    if (res.status === 401) {
-      handleUnauthorized();
-      return [];
+      const text = error?.response?.data;
+      const message =
+        typeof text === "string"
+          ? text.slice(0, 120)
+          : error?.response?.status
+            ? `HTTP ${error.response.status}`
+            : error?.message || "Request failed";
+      throw new Error(message);
     }
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${text.slice(0, 120)}`);
-    }
-
-    const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Expected JSON but received: ${text.slice(0, 120)}`);
-    }
-
-    return res.json();
   };
 
   const fetchStudents = async () => {
     try {
       setError("");
-      const data = await fetchJson(`${API_BASE}/api/students`);
+      const data = await fetchJson("/api/students");
       setStudents(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Failed to fetch students:", err);
@@ -116,7 +115,7 @@ function AdminAttendance() {
   const fetchAttendance = async () => {
     try {
       setError("");
-      const data = await fetchJson(`${API_BASE}/api/attendance`);
+      const data = await fetchJson("/api/attendance");
       setAttendance(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Failed to fetch attendance:", err);
@@ -128,7 +127,7 @@ function AdminAttendance() {
   const fetchMarks = async () => {
     try {
       setError("");
-      const data = await fetchJson(`${API_BASE}/api/marks`);
+      const data = await fetchJson("/api/marks");
       setMarks(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Failed to fetch marks:", err);
@@ -335,47 +334,28 @@ function AdminAttendance() {
 
         if (existing?._id || existing?.id) {
           const id = existing._id || existing.id;
-          let res = await fetch(`${API_BASE}/api/attendance/${id}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              ...getAuthHeaders()
-            },
-            body: JSON.stringify(payload)
-          });
+          try {
+            await api.put(`/api/attendance/${id}`, payload, { headers: getAuthHeaders() });
+          } catch (error) {
+            if (isUnauthorizedError(error)) return handleUnauthorized();
 
-          if (res.status === 401) return handleUnauthorized();
-
-          if (!res.ok && (res.status === 404 || res.status === 405)) {
-            res = await fetch(`${API_BASE}/api/attendance/${id}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                ...getAuthHeaders()
-              },
-              body: JSON.stringify(payload)
-            });
-          }
-
-          if (!res.ok) {
-            const txt = await res.text().catch(() => "");
-            throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`);
+            if (error?.response?.status === 404 || error?.response?.status === 405) {
+              try {
+                await api.patch(`/api/attendance/${id}`, payload, { headers: getAuthHeaders() });
+              } catch (patchError) {
+                if (isUnauthorizedError(patchError)) return handleUnauthorized();
+                throw patchError;
+              }
+            } else {
+              throw error;
+            }
           }
         } else {
-          const res = await fetch(`${API_BASE}/api/attendance`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...getAuthHeaders()
-            },
-            body: JSON.stringify(payload)
-          });
-
-          if (res.status === 401) return handleUnauthorized();
-
-          if (!res.ok) {
-            const txt = await res.text().catch(() => "");
-            throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`);
+          try {
+            await api.post("/api/attendance", payload, { headers: getAuthHeaders() });
+          } catch (error) {
+            if (isUnauthorizedError(error)) return handleUnauthorized();
+            throw error;
           }
         }
       }
@@ -428,7 +408,7 @@ function AdminAttendance() {
 
     try {
       const data = await fetchJson(
-        `${API_BASE}/api/attendance/register?subject=${encodeURIComponent(subject)}&email=${encodeURIComponent(student?.email || "")}`
+        `/api/attendance/register?subject=${encodeURIComponent(subject)}&email=${encodeURIComponent(student?.email || "")}`
       );
       const remoteRows = Array.isArray(data) ? data : [];
       if (remoteRows.length > 0) {

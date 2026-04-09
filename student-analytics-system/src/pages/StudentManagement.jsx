@@ -26,8 +26,7 @@ import {
   Divider,
   Alert
 } from "@mui/material";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:1234";
+import { api, isUnauthorizedError } from "../api/http";
 
 function StudentManagement() {
   const navigate = useNavigate();
@@ -74,26 +73,10 @@ function StudentManagement() {
   const fetchStudents = async () => {
     try {
       setError("");
-      const res = await fetch(`${API_BASE}/api/students`, {
-        headers: getAuthHeaders()
-      });
-
-      if (res.status === 401) return handleUnauthorized();
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`);
-      }
-
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`Expected JSON but got: ${txt.slice(0, 120)}`);
-      }
-
-      const data = await res.json();
+      const { data } = await api.get("/api/students", { headers: getAuthHeaders() });
       setStudents(Array.isArray(data) ? data : []);
     } catch (e) {
+      if (isUnauthorizedError(e)) return handleUnauthorized();
       console.error("Failed to fetch students:", e);
       setStudents([]);
       setError("Could not load students from database.");
@@ -163,35 +146,35 @@ function StudentManagement() {
       const candidateRequests = [];
 
       if (id) {
-        candidateRequests.push({ url: `${API_BASE}/api/students/${id}` });
+        candidateRequests.push({ path: `/api/students/${id}` });
       }
 
       if (originalEmail) {
         const encodedEmail = encodeURIComponent(originalEmail);
-        candidateRequests.push({ url: `${API_BASE}/api/students/email/${encodedEmail}` });
+        candidateRequests.push({ path: `/api/students/email/${encodedEmail}` });
       }
 
-      candidateRequests.push({ url: `${API_BASE}/api/students` });
+      candidateRequests.push({ path: "/api/students" });
 
       let deleted = false;
       let lastFailure = "";
 
       for (const req of candidateRequests) {
-        const res = await fetch(req.url, {
-          method: "DELETE",
-          headers: getAuthHeaders()
-        });
+        try {
+          await api.delete(req.path, { headers: getAuthHeaders() });
+          deleted = true;
+          break;
+        } catch (error) {
+          if (isUnauthorizedError(error)) return handleUnauthorized();
 
-        if (res.status === 401) return handleUnauthorized();
-
-        if (!res.ok) {
-          const txt = await res.text().catch(() => "");
-          lastFailure = `HTTP ${res.status}: ${txt.slice(0, 120)}`;
-          continue;
+          const txt = error?.response?.data;
+          lastFailure =
+            typeof txt === "string"
+              ? `HTTP ${error.response.status}: ${txt.slice(0, 120)}`
+              : error?.response?.status
+                ? `HTTP ${error.response.status}`
+                : error?.message || "Delete failed";
         }
-
-        deleted = true;
-        break;
       }
 
       if (!deleted) {
@@ -262,41 +245,46 @@ function StudentManagement() {
       const candidateRequests = [];
 
       if (id) {
-        candidateRequests.push({ method: "PUT", url: `${API_BASE}/api/students/${id}` });
-        candidateRequests.push({ method: "PATCH", url: `${API_BASE}/api/students/${id}` });
+        candidateRequests.push({ method: "PUT", path: `/api/students/${id}` });
+        candidateRequests.push({ method: "PATCH", path: `/api/students/${id}` });
       }
 
       if (originalEmail) {
         const encodedEmail = encodeURIComponent(originalEmail);
-        candidateRequests.push({ method: "PUT", url: `${API_BASE}/api/students/email/${encodedEmail}` });
-        candidateRequests.push({ method: "PATCH", url: `${API_BASE}/api/students/email/${encodedEmail}` });
+        candidateRequests.push({ method: "PUT", path: `/api/students/email/${encodedEmail}` });
+        candidateRequests.push({ method: "PATCH", path: `/api/students/email/${encodedEmail}` });
       }
 
-      candidateRequests.push({ method: "PUT", url: `${API_BASE}/api/students` });
-      candidateRequests.push({ method: "PATCH", url: `${API_BASE}/api/students` });
+      candidateRequests.push({ method: "PUT", path: "/api/students" });
+      candidateRequests.push({ method: "PATCH", path: "/api/students" });
 
       let updated = payload;
       let lastFailure = "";
       let didUpdate = false;
 
       for (const req of candidateRequests) {
-        const res = await fetch(req.url, {
-          method: req.method,
-          headers,
-          body: JSON.stringify(payload)
-        });
+        try {
+          const response = await api.request({
+            url: req.path,
+            method: req.method.toLowerCase(),
+            headers,
+            data: payload
+          });
 
-        if (res.status === 401) return handleUnauthorized();
+          updated = response.data ?? payload;
+          didUpdate = true;
+          break;
+        } catch (error) {
+          if (isUnauthorizedError(error)) return handleUnauthorized();
 
-        if (!res.ok) {
-          const txt = await res.text().catch(() => "");
-          lastFailure = `HTTP ${res.status}: ${txt.slice(0, 120)}`;
-          continue;
+          const txt = error?.response?.data;
+          lastFailure =
+            typeof txt === "string"
+              ? `HTTP ${error.response.status}: ${txt.slice(0, 120)}`
+              : error?.response?.status
+                ? `HTTP ${error.response.status}`
+                : error?.message || "Update failed";
         }
-
-        updated = await res.json().catch(() => payload);
-        didUpdate = true;
-        break;
       }
 
       if (!didUpdate) {

@@ -9,8 +9,7 @@ import {
   TextField,
   Button
 } from "@mui/material";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:1234";
+import { api } from "../api/http";
 
 function Register() {
 
@@ -38,18 +37,14 @@ function Register() {
   }
 
   try {
-    const res = await fetch(`${API_BASE}/api/users/register`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
+    const { data } = await api.post(
+      "/api/users/register",
+      {
         ...formData,
         role: "student"
-      })
-    });
-
-    const data = await res.text();
+      },
+      { responseType: "text" }
+    );
 
     alert(data);
 
