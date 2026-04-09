@@ -1,249 +1,194 @@
+import { useMemo } from "react";
 import StudentSidebar from "../components/StudentSidebar";
-import { useState } from "react";
-import Grid from "@mui/material/Grid";
+import { useData } from "../context/DataContext";
+
 import {
   Box,
   Typography,
   Paper,
-  FormControl,
-  Select,
-  MenuItem,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Chip,
-  Alert
+  Chip
 } from "@mui/material";
 
-/* ===== SAME DATA ===== */
-const attendanceData = {
-  Math: [
-    { date: "2026-02-01", status: "Present" },
-    { date: "2026-02-02", status: "Absent" },
-    { date: "2026-02-05", status: "Present" },
-    { date: "2026-02-10", status: "Present" },
-  ],
-  Science: [
-    { date: "2026-02-01", status: "Present" },
-    { date: "2026-02-03", status: "Present" },
-    { date: "2026-02-06", status: "Absent" },
-  ],
-  English: [
-    { date: "2026-02-02", status: "Present" },
-    { date: "2026-02-04", status: "Present" },
-    { date: "2026-02-06", status: "Present" },
-  ],
-};
+const defaultSubjects = ["Math", "Science", "English", "History"];
 
 function StudentAttendance() {
-  const [selectedSubject, setSelectedSubject] = useState("Math");
+  const { attendance: allAttendance = [] } = useData();
 
-  const allRecords = Object.values(attendanceData).flat();
-  const overallPresent = allRecords.filter(
-    (r) => r.status === "Present"
-  ).length;
+  const user =
+    JSON.parse(localStorage.getItem("user")) || {};
 
-  const overallPercentage = (
-    (overallPresent / allRecords.length) *
-    100
-  ).toFixed(1);
+  const email = user.email || localStorage.getItem("userEmail") || "";
+  const normalizedEmail = String(email || "").toLowerCase().trim();
 
-  const subjectRecords = [...attendanceData[selectedSubject]].sort(
-    (a, b) => new Date(a.date) - new Date(b.date)
-  );
+  const attendance = useMemo(() => {
+    return allAttendance.filter(
+      (item) => String(item?.email || "").toLowerCase().trim() === normalizedEmail
+    );
+  }, [allAttendance, normalizedEmail]);
 
-  const totalClasses = subjectRecords.length;
-  const presentCount = subjectRecords.filter(
-    (r) => r.status === "Present"
-  ).length;
+  const normalizeSubject = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    return raw
+      .toLowerCase()
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part[0].toUpperCase() + part.slice(1))
+      .join(" ");
+  };
 
-  const subjectPercentage = (
-    (presentCount / totalClasses) *
-    100
-  ).toFixed(1);
+  const subjectOptions = useMemo(() => {
+    const uniqueMap = new Map();
+
+    defaultSubjects.forEach((subject) => {
+      const normalized = normalizeSubject(subject);
+      uniqueMap.set(normalized.toLowerCase(), normalized);
+    });
+
+    attendance.forEach((record) => {
+      const normalized = normalizeSubject(record?.subject);
+      if (normalized) {
+        uniqueMap.set(normalized.toLowerCase(), normalized);
+      }
+    });
+
+    return Array.from(uniqueMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [attendance]);
+
+  // calculate overall attendance %
+  const calculateAttendance = () => {
+
+    if (attendance.length === 0) return 0;
+
+    const present = attendance.filter(
+      (a) => a.status === "Present"
+    ).length;
+
+    return Math.round(
+      (present / attendance.length) * 100
+    );
+  };
+
+  const getColor = (value) => {
+    if (value >= 75) return "success";
+    if (value >= 50) return "warning";
+    return "error";
+  };
+
+  const value = calculateAttendance();
+
+  const calculateSubjectAttendance = (subject) => {
+    const normalizedSubject = normalizeSubject(subject).toLowerCase();
+    const records = attendance.filter(
+      (record) => normalizeSubject(record?.subject).toLowerCase() === normalizedSubject
+    );
+
+    if (!records.length) return 0;
+
+    const present = records.filter(
+      (record) => String(record?.status || "").toLowerCase() === "present"
+    ).length;
+
+    return Math.round((present / records.length) * 100);
+  };
 
   return (
+
     <Box sx={{ display: "flex" }}>
+
       <StudentSidebar />
 
       <Box sx={{ flexGrow: 1, p: 4 }}>
-        <Typography variant="h4" fontWeight="bold">
-          Attendance Dashboard
+
+        <Typography variant="h4" fontWeight="bold" gutterBottom>
+          My Attendance
         </Typography>
 
         <Typography color="text.secondary" mb={4}>
-          View subject-wise attendance records
+          Overall attendance overview
         </Typography>
 
-        {/* OVERALL SUMMARY */}
-        <Grid container spacing={3}>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6">
-                Overall Attendance
-              </Typography>
-              <Typography
-                variant="h5"
-                sx={{
-                  color:
-                    overallPercentage < 75
-                      ? "error.main"
-                      : "success.main",
-                }}
-              >
-                {overallPercentage}%
-              </Typography>
-            </Paper>
-          </Grid>
+        <Paper sx={{ p: 3 }}>
 
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6">
-                Total Classes
-              </Typography>
-              <Typography variant="h5">
-                {allRecords.length}
-              </Typography>
-            </Paper>
-          </Grid>
+          <TableContainer>
 
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6">
-                Total Present
-              </Typography>
-              <Typography
-                variant="h5"
-                sx={{ color: "success.main" }}
-              >
-                {overallPresent}
-              </Typography>
-            </Paper>
-          </Grid>
-        </Grid>
+            <Table>
 
-        {/* SUBJECT SELECTOR */}
-        <Box mt={4} sx={{ width: 250 }}>
-          <FormControl fullWidth>
-            <Select
-              value={selectedSubject}
-              onChange={(e) =>
-                setSelectedSubject(e.target.value)
-              }
-            >
-              {Object.keys(attendanceData).map(
-                (subject) => (
-                  <MenuItem
-                    key={subject}
-                    value={subject}
-                  >
-                    {subject}
-                  </MenuItem>
-                )
-              )}
-            </Select>
-          </FormControl>
-        </Box>
+              <TableHead>
 
-        {/* SUBJECT SUMMARY */}
-        <Grid container spacing={3} mt={1}>
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6">
-                {selectedSubject} Attendance
-              </Typography>
-              <Typography
-                variant="h5"
-                sx={{
-                  color:
-                    subjectPercentage < 75
-                      ? "error.main"
-                      : "success.main",
-                }}
-              >
-                {subjectPercentage}%
-              </Typography>
-            </Paper>
-          </Grid>
+                <TableRow>
+                  <TableCell><strong>Email</strong></TableCell>
+                  <TableCell><strong>Overall Attendance %</strong></TableCell>
+                </TableRow>
 
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6">
-                Classes Conducted
-              </Typography>
-              <Typography variant="h5">
-                {totalClasses}
-              </Typography>
-            </Paper>
-          </Grid>
+              </TableHead>
 
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6">
-                Present
-              </Typography>
-              <Typography
-                variant="h5"
-                sx={{ color: "success.main" }}
-              >
-                {presentCount}
-              </Typography>
-            </Paper>
-          </Grid>
-        </Grid>
+              <TableBody>
 
-        {/* ATTENDANCE TABLE */}
-        <Paper sx={{ p: 3, mt: 4 }}>
+                <TableRow>
+
+                  <TableCell>{email}</TableCell>
+
+                  <TableCell>
+                    <Chip
+                      label={`${value}%`}
+                      color={getColor(value)}
+                    />
+                  </TableCell>
+
+                </TableRow>
+
+              </TableBody>
+
+            </Table>
+
+          </TableContainer>
+
+        </Paper>
+
+        <Paper sx={{ p: 3, mt: 3 }}>
           <Typography variant="h6" gutterBottom>
-            {selectedSubject} - Class Records
+            Subject-wise Attendance
           </Typography>
 
           <TableContainer>
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Date</TableCell>
-                  <TableCell>Status</TableCell>
+                  <TableCell><strong>Subject</strong></TableCell>
+                  <TableCell><strong>Attendance %</strong></TableCell>
                 </TableRow>
               </TableHead>
 
               <TableBody>
-                {subjectRecords.map((record, index) => (
-                  <TableRow key={index}>
-                    <TableCell>{record.date}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={record.status}
-                        color={
-                          record.status === "Present"
-                            ? "success"
-                            : "error"
-                        }
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {subjectOptions.map((subject) => {
+                  const subjectValue = calculateSubjectAttendance(subject);
+                  return (
+                    <TableRow key={subject}>
+                      <TableCell>{subject}</TableCell>
+                      <TableCell>
+                        <Chip label={`${subjectValue}%`} color={getColor(subjectValue)} />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>
         </Paper>
 
-        {/* LOW ATTENDANCE ALERT */}
-        {subjectPercentage < 75 && (
-          <Alert
-            severity="warning"
-            sx={{ mt: 3 }}
-          >
-            Your attendance in {selectedSubject} is below
-            75%. Please improve.
-          </Alert>
-        )}
       </Box>
+
     </Box>
+
   );
 }
 
 export default StudentAttendance;
+

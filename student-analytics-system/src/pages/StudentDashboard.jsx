@@ -1,11 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import StudentSidebar from "../components/StudentSidebar";
 import DashboardCard from "../components/DashboardCard";
-import Grid from "@mui/material/Grid";
+import { useData } from "../context/DataContext";
+
+import Grid from "@mui/material/Grid"; // ✅ FIXED
 import {
   Box,
   Typography,
   Paper,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
   List,
   ListItem,
   ListItemText,
@@ -15,88 +21,290 @@ import {
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  LineChart,
-  Line,
   RadarChart,
   Radar,
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  Legend,
+  Legend
 } from "recharts";
 
-const studentName = "Raj";
-
-/* ---- DATA (UNCHANGED) ---- */
-const subjectData = [
-  { subject: "Math", midterm: 75, final: 80, assignments: 78 },
-  { subject: "Science", midterm: 82, final: 88, assignments: 85 },
-  { subject: "English", midterm: 60, final: 68, assignments: 66 },
-  { subject: "History", midterm: 70, final: 74, assignments: 72 },
-  { subject: "Geography", midterm: 55, final: 60, assignments: 58 },
+const defaultSubjects = ["Math", "Science", "English", "History"];
+const examTypes = [
+  "Midterm 1",
+  "Midterm 2",
+  "Lab Internal",
+  "Lab External",
+  "End Semester Exam",
+  "Assignment",
+  "Quiz"
 ];
 
-const radarData = [
-  { subject: "Math", yourScore: 80, classAvg: 75 },
-  { subject: "Science", yourScore: 88, classAvg: 82 },
-  { subject: "English", yourScore: 68, classAvg: 72 },
-  { subject: "History", yourScore: 74, classAvg: 70 },
-  { subject: "Geography", yourScore: 60, classAvg: 65 },
-];
+const normalizeSubject = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
+};
 
-const trendData = [
-  { month: "Sep", percentage: 72 },
-  { month: "Oct", percentage: 74 },
-  { month: "Nov", percentage: 76 },
-  { month: "Dec", percentage: 68 },
-  { month: "Jan", percentage: 78 },
-  { month: "Feb", percentage: 80 },
-];
+const normalizeExamType = (value) => String(value || "Midterm 1").trim().toLowerCase();
+
+const isMatchingExamType = (recordExamType, selectedExamType) =>
+  normalizeExamType(recordExamType) === normalizeExamType(selectedExamType);
 
 function StudentDashboard() {
+
+  const { students = [], marks: localMarks, attendance: allAttendance = [] } = useData();
+
+  const user =
+    JSON.parse(localStorage.getItem("user")) || {};
+
+  const studentEmail = user.email || localStorage.getItem("userEmail") || "";
+  const studentName = user.name || studentEmail.split("@")[0] || "Student";
+  const [selectedExam, setSelectedExam] = useState("Midterm 1");
+
   const [suggestions, setSuggestions] = useState([]);
+  const [lastMarksUpdate, setLastMarksUpdate] = useState(new Date());
+  const marksSource = localMarks;
+
+  const normalizedEmail = studentEmail.toLowerCase().trim();
+
+  const examMarks = useMemo(
+    () =>
+      marksSource.filter((mark) =>
+        isMatchingExamType(mark?.examType || "Midterm 1", selectedExam)
+      ),
+    [marksSource, selectedExam]
+  );
+
+  const examTotalsByEmail = useMemo(() => {
+    const totals = new Map();
+
+    students.forEach((student) => {
+      const email = String(student?.email || "").toLowerCase().trim();
+      if (email) totals.set(email, 0);
+    });
+
+    examMarks.forEach((mark) => {
+      const email = String(mark?.email || mark?.student || "").toLowerCase().trim();
+      const score = Number(mark?.score ?? mark?.marksObtained ?? 0);
+
+      if (!email || !Number.isFinite(score)) return;
+
+      totals.set(email, (totals.get(email) || 0) + score);
+    });
+
+    return totals;
+  }, [students, examMarks]);
+
+  const rankedStudents = useMemo(() => {
+    return students
+      .map((student) => {
+        const email = String(student?.email || "").toLowerCase().trim();
+
+        return {
+          student,
+          email,
+          total: examTotalsByEmail.get(email) || 0
+        };
+      })
+      .sort(
+        (left, right) =>
+          right.total - left.total ||
+          String(left.student?.name || "").localeCompare(String(right.student?.name || ""))
+      );
+  }, [students, examTotalsByEmail]);
+
+  const currentRank = useMemo(() => {
+    const index = rankedStudents.findIndex((entry) => entry.email === normalizedEmail);
+    return index === -1 ? null : index + 1;
+  }, [rankedStudents, normalizedEmail]);
+
+  const subjectOptions = useMemo(() => {
+    const uniqueMap = new Map();
+
+    defaultSubjects.forEach((subject) => {
+      const normalized = normalizeSubject(subject);
+      uniqueMap.set(normalized.toLowerCase(), normalized);
+    });
+
+    examMarks.forEach((mark) => {
+      const normalized = normalizeSubject(mark?.subject);
+      if (normalized) {
+        uniqueMap.set(normalized.toLowerCase(), normalized);
+      }
+    });
+
+    allAttendance.forEach((record) => {
+      const normalized = normalizeSubject(record?.subject);
+      if (normalized) {
+        uniqueMap.set(normalized.toLowerCase(), normalized);
+      }
+    });
+
+    return Array.from(uniqueMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [examMarks, allAttendance]);
+
+  const studentMarks = useMemo(() => subjectOptions.map((sub) => {
+    const record = examMarks.find((m) => {
+      const markEmail = String(m?.email || m?.student || "").toLowerCase().trim();
+      const markSubject = normalizeSubject(m?.subject);
+      return markEmail === normalizedEmail && markSubject === sub;
+    });
+
+    return {
+      subject: sub,
+      value: record ? Number(record.marksObtained ?? record.score ?? 0) : 0
+    };
+  }), [examMarks, normalizedEmail, subjectOptions]);
+
+  const myAttendance = useMemo(() => {
+    return allAttendance.filter(
+      (record) => String(record?.email || "").toLowerCase().trim() === normalizedEmail
+    );
+  }, [allAttendance, normalizedEmail]);
+
+  const attendanceOverall = useMemo(() => {
+    if (!myAttendance.length) return 0;
+    const present = myAttendance.filter(
+      (record) => String(record?.status || "").toLowerCase() === "present"
+    ).length;
+    return Math.round((present / myAttendance.length) * 100);
+  }, [myAttendance]);
+
+  const overall =
+    studentMarks.reduce((sum, s) => sum + s.value, 0) /
+    (studentMarks.length || 1);
+
+  const grade =
+    overall >= 90 ? "A+" :
+    overall >= 80 ? "A" :
+    overall >= 70 ? "B" :
+    overall >= 60 ? "C" :
+    overall >= 40 ? "D" : "F";
+
+  const strongSubjects = studentMarks.filter((s) => s.value >= 75);
+  const weakSubjects = useMemo(
+    () => [...studentMarks].filter((s) => s.value < 50).sort((a, b) => a.value - b.value),
+    [studentMarks]
+  );
+
+  const subjectData = studentMarks.map((s) => ({
+    subject: s.subject,
+    score: s.value
+  }));
+
+  const trendData = [
+    { month: "Nov", percentage: Math.max(0, overall - 10) },
+    { month: "Dec", percentage: Math.max(0, overall - 7) },
+    { month: "Jan", percentage: Math.max(0, overall - 5) },
+    { month: "Feb", percentage: Math.max(0, overall - 3) },
+    { month: "Mar", percentage: Math.max(0, overall - 1) },
+    { month: "Apr", percentage: Math.min(100, overall) }
+  ];
+
+  const radarData = studentMarks.map((s) => ({
+    subject: s.subject,
+    yourScore: s.value,
+    classAvg: s.value - 5
+  }));
 
   useEffect(() => {
-    const allSuggestions =
-      JSON.parse(localStorage.getItem("suggestions")) || [];
+    setLastMarksUpdate(new Date());
+  }, [marksSource]);
 
-    const mySuggestions = allSuggestions.filter(
-      (item) => item.student === studentName
-    );
+  useEffect(() => {
+    const syncSuggestions = () => {
+      let allSuggestions = [];
 
-    setSuggestions(mySuggestions);
-  }, []);
+      try {
+        allSuggestions = JSON.parse(localStorage.getItem("suggestions") || "[]");
+        if (!Array.isArray(allSuggestions)) allSuggestions = [];
+      } catch {
+        allSuggestions = [];
+      }
+
+      const mySuggestions = allSuggestions.filter((item) => {
+        const suggestionEmail = String(item?.email || "").toLowerCase().trim();
+
+        if (suggestionEmail) {
+          return suggestionEmail === normalizedEmail;
+        }
+
+        // Backward compatibility for old suggestions saved without email.
+        return String(item?.student || "") === studentName;
+      });
+
+      setSuggestions(mySuggestions);
+    };
+
+    syncSuggestions();
+
+    const intervalId = setInterval(syncSuggestions, 3000);
+    window.addEventListener("storage", syncSuggestions);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("storage", syncSuggestions);
+    };
+  }, [normalizedEmail, studentName]);
 
   return (
     <Box sx={{ display: "flex" }}>
       <StudentSidebar />
 
       <Box sx={{ flexGrow: 1, p: 4 }}>
+        <Paper sx={{ p: 3, mb: 4 }}>
+          <Typography variant="h6" gutterBottom>
+            Select Exam Type
+          </Typography>
+
+          <FormControl fullWidth>
+            <InputLabel>Exam</InputLabel>
+            <Select
+              value={selectedExam}
+              label="Exam"
+              onChange={(e) => setSelectedExam(e.target.value || "Midterm 1")}
+            >
+              {examTypes.map((examType) => (
+                <MenuItem key={examType} value={examType}>
+                  {examType}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Paper>
+
         <Typography variant="h4" fontWeight="bold">
           Welcome back, {studentName}! 👋
         </Typography>
 
         <Typography color="text.secondary" mb={4}>
-          Here's a comprehensive overview of your academic journey
+          Here's a comprehensive overview of your academic journey for {selectedExam}
         </Typography>
 
         {/* SUMMARY CARDS */}
         <Grid container spacing={3}>
           <Grid size={{ xs: 12, md: 6 }}>
-            <DashboardCard title="Overall Percentage" value="71.6%" />
+            <DashboardCard title="Overall Percentage" value={`${overall.toFixed(1)}%`} />
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
-            <DashboardCard title="Current Grade" value="B" />
+            <DashboardCard title="Current Grade" value={grade} />
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
-            <DashboardCard title="Class Rank" value="#45" />
+            <DashboardCard title="Class Rank" value={currentRank ? `#${currentRank}` : "-"} />
           </Grid>
           <Grid size={{ xs: 12, md: 6 }}>
-            <DashboardCard title="Attendance" value="85%" />
+            <DashboardCard title="Attendance" value={`${attendanceOverall}%`} />
           </Grid>
         </Grid>
 
@@ -112,9 +320,7 @@ function StudentDashboard() {
               <YAxis />
               <Tooltip />
               <Legend />
-              <Bar dataKey="midterm" fill="#F59E0B" />
-              <Bar dataKey="final" fill="#2563EB" />
-              <Bar dataKey="assignments" fill="#10B981" />
+              <Bar dataKey="score" fill="#2563EB" />
             </BarChart>
           </ResponsiveContainer>
         </Paper>
@@ -178,21 +384,33 @@ function StudentDashboard() {
           <Grid size={{ xs: 12, md: 6 }}>
             <Paper sx={{ p: 3 }}>
               <Typography variant="h6">Strong Areas</Typography>
-              <Typography color="success.main">
-                Science - 88%
-              </Typography>
+              {strongSubjects.length > 0 ? (
+                strongSubjects.map((item) => (
+                  <Typography key={item.subject} color="success.main">
+                    {item.subject} - {item.value}%
+                  </Typography>
+                ))
+              ) : (
+                <Typography color="text.secondary">No strong areas yet.</Typography>
+              )}
             </Paper>
           </Grid>
 
           <Grid size={{ xs: 12, md: 6 }}>
             <Paper sx={{ p: 3 }}>
-              <Typography variant="h6">Needs Improvement</Typography>
-              <Typography color="error.main">
-                Geography - 60%
+              <Typography variant="h6">Needs Improvement (Live)</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Last synced: {lastMarksUpdate.toLocaleTimeString()}
               </Typography>
-              <Typography color="error.main">
-                English - 68%
-              </Typography>
+              {weakSubjects.length > 0 ? (
+                weakSubjects.map((item) => (
+                  <Typography key={item.subject} color="error.main">
+                    {item.subject} - {item.value}%
+                  </Typography>
+                ))
+              ) : (
+                <Typography color="text.secondary">No weak areas. Keep it up!</Typography>
+              )}
             </Paper>
           </Grid>
 
@@ -256,3 +474,4 @@ function StudentDashboard() {
 }
 
 export default StudentDashboard;
+

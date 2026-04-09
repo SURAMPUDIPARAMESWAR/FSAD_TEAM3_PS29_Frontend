@@ -10,9 +10,14 @@ import {
   Divider
 } from "@mui/material";
 
+import { useData } from "../context/DataContext";
+
 function AdminSidebar() {
+
   const navigate = useNavigate();
   const location = useLocation();
+
+  const { logoutUser } = useData();
 
   const isActive = (path) => location.pathname === path;
 
@@ -25,6 +30,11 @@ function AdminSidebar() {
     { label: "Reports", path: "/admin-reports" },
     { label: "Student Insights", path: "/admin-insights" }
   ];
+
+  const handleLogout = () => {
+  logoutUser();
+  navigate("/login");
+  };
 
   return (
     <Drawer
@@ -43,8 +53,10 @@ function AdminSidebar() {
         }
       }}
     >
+
       {/* Top Section */}
       <Box>
+
         <Box sx={{ p: 2 }}>
           <Typography variant="h6" fontWeight="bold">
             Admin Panel
@@ -55,6 +67,7 @@ function AdminSidebar() {
 
         <List>
           {menuItems.map((item) => (
+
             <ListItemButton
               key={item.path}
               selected={isActive(item.path)}
@@ -71,24 +84,32 @@ function AdminSidebar() {
                 }
               }}
             >
+
               <ListItemText primary={item.label} />
+
             </ListItemButton>
+
           ))}
         </List>
+
       </Box>
 
       {/* Bottom Logout Section */}
       <Box sx={{ p: 2 }}>
+
         <Divider sx={{ backgroundColor: "rgba(255,255,255,0.2)", mb: 2 }} />
+
         <Button
           variant="contained"
           color="error"
           fullWidth
-          onClick={() => navigate("/")}
+          onClick={handleLogout}
         >
           Logout
         </Button>
+
       </Box>
+
     </Drawer>
   );
 }

@@ -10,9 +10,14 @@ import {
   Divider
 } from "@mui/material";
 
+import { useData } from "../context/DataContext";
+
 function StudentSidebar() {
+
   const navigate = useNavigate();
   const location = useLocation();
+
+  const { logoutUser } = useData();
 
   const isActive = (path) => location.pathname === path;
 
@@ -21,6 +26,11 @@ function StudentSidebar() {
     { label: "Reports", path: "/student-reports" },
     { label: "Attendance", path: "/student-attendance" }
   ];
+
+  const handleLogout = () => {
+  logoutUser();
+  navigate("/login");
+  };
 
   return (
     <Drawer
@@ -39,8 +49,10 @@ function StudentSidebar() {
         }
       }}
     >
+
       {/* Top Section */}
       <Box>
+
         <Box sx={{ p: 2 }}>
           <Typography variant="h6" fontWeight="bold">
             Student Panel
@@ -50,7 +62,9 @@ function StudentSidebar() {
         <Divider sx={{ backgroundColor: "rgba(255,255,255,0.2)" }} />
 
         <List>
+
           {menuItems.map((item) => (
+
             <ListItemButton
               key={item.path}
               selected={isActive(item.path)}
@@ -67,24 +81,33 @@ function StudentSidebar() {
                 }
               }}
             >
+
               <ListItemText primary={item.label} />
+
             </ListItemButton>
+
           ))}
+
         </List>
+
       </Box>
 
       {/* Logout Section */}
       <Box sx={{ p: 2 }}>
+
         <Divider sx={{ backgroundColor: "rgba(255,255,255,0.2)", mb: 2 }} />
+
         <Button
           variant="contained"
           color="error"
           fullWidth
-          onClick={() => navigate("/")}
+          onClick={handleLogout}
         >
           Logout
         </Button>
+
       </Box>
+
     </Drawer>
   );
 }

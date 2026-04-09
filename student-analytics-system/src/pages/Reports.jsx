@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import AdminSidebar from "../components/AdminSidebar";
 import DashboardCard from "../components/DashboardCard";
+import { useData } from "../context/DataContext";
+
 import Grid from "@mui/material/Grid";
 import {
   Box,
@@ -18,79 +20,94 @@ import {
   TableRow
 } from "@mui/material";
 
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
-
-/* ---- DATA (UNCHANGED) ---- */
-const examData = {
-  "Midterm 1": [
-    { name: "Rahul", Math: 75, Science: 68, English: 80, History: 64 },
-    { name: "Anjali", Math: 70, Science: 72, English: 78, History: 69 },
-    { name: "Vikram", Math: 85, Science: 82, English: 88, History: 75 },
-    { name: "Sneha", Math: 55, Science: 50, English: 60, History: 58 },
-  ],
-  "Midterm 2": [
-    { name: "Rahul", Math: 85, Science: 78, English: 88, History: 74 },
-    { name: "Anjali", Math: 75, Science: 82, English: 81, History: 69 },
-    { name: "Vikram", Math: 90, Science: 92, English: 85, History: 80 },
-    { name: "Sneha", Math: 60, Science: 55, English: 70, History: 65 },
-  ],
-  "End Semester Exam": [
-    { name: "Rahul", Math: 90, Science: 85, English: 92, History: 84 },
-    { name: "Anjali", Math: 80, Science: 88, English: 85, History: 79 },
-    { name: "Vikram", Math: 95, Science: 94, English: 90, History: 88 },
-    { name: "Sneha", Math: 65, Science: 60, English: 75, History: 70 },
-  ],
-};
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 const subjects = ["Math", "Science", "English", "History"];
 
 function Reports() {
+  const { students = [], marks = [] } = useData();
   const [selectedExam, setSelectedExam] = useState("Midterm 1");
 
-  const students = examData[selectedExam];
+  const examMarks = useMemo(
+    () =>
+      marks.filter((m) => {
+        const recordExam = String(m?.examType || "").trim();
+        if (!recordExam) {
+          // Backward compatibility for old records created before examType was stored.
+          return selectedExam === "Midterm 1";
+        }
 
-  const subjectAverages = subjects.map((subject) => {
-    const avg =
-      students.reduce((sum, s) => sum + s[subject], 0) /
-      students.length;
+        return recordExam === selectedExam;
+      }),
+    [marks, selectedExam]
+  );
 
-    return { subject, average: avg.toFixed(1) };
-  });
+  const studentPerformance = useMemo(
+    () =>
+      students.map((student) => {
+        const normalizedStudentEmail = String(student?.email || "").toLowerCase().trim();
+        const studentMarks = {};
 
-  const classAverage =
-    students.reduce((sum, s) => {
-      const total =
-        subjects.reduce((subSum, sub) => subSum + s[sub], 0) /
-        subjects.length;
-      return sum + total;
-    }, 0) / students.length;
+        subjects.forEach((sub) => {
+          const record = examMarks.find((m) => {
+            const normalizedMarkEmail = String(m?.email || m?.student || "")
+              .toLowerCase()
+              .trim();
 
-  const passCount = students.filter((student) =>
-    subjects.every((sub) => student[sub] >= 40)
-  ).length;
+            return m?.subject === sub && normalizedMarkEmail === normalizedStudentEmail;
+          });
 
-  const passPercentage = (
-    (passCount / students.length) *
-    100
-  ).toFixed(1);
+          studentMarks[sub] = Number(record?.marksObtained ?? record?.score ?? 0);
+        });
 
-  const topPerformer = students.reduce((prev, curr) => {
-    const prevAvg =
-      subjects.reduce((sum, sub) => sum + prev[sub], 0) /
-      subjects.length;
-    const currAvg =
-      subjects.reduce((sum, sub) => sum + curr[sub], 0) /
-      subjects.length;
+        return {
+          name: student?.name || "N/A",
+          ...studentMarks
+        };
+      }),
+    [students, examMarks]
+  );
 
-    return currAvg > prevAvg ? curr : prev;
-  });
+  const subjectAverages = useMemo(
+    () =>
+      subjects.map((subject) => {
+        const avg =
+          studentPerformance.reduce((sum, s) => sum + Number(s[subject] || 0), 0) /
+          (studentPerformance.length || 1);
+
+        return { subject, average: Number(avg.toFixed(1)) };
+      }),
+    [studentPerformance]
+  );
+
+  const classAverage = useMemo(() => {
+    const total =
+      studentPerformance.reduce((sum, s) => {
+        const studentAvg =
+          subjects.reduce((subSum, sub) => subSum + Number(s[sub] || 0), 0) / subjects.length;
+        return sum + studentAvg;
+      }, 0) / (studentPerformance.length || 1);
+
+    return total;
+  }, [studentPerformance]);
+
+  const passPercentage = useMemo(() => {
+    const passCount = studentPerformance.filter((student) =>
+      subjects.every((sub) => Number(student[sub] || 0) >= 40)
+    ).length;
+
+    return ((passCount / (studentPerformance.length || 1)) * 100).toFixed(1);
+  }, [studentPerformance]);
+
+  const topPerformer = useMemo(() => {
+    if (studentPerformance.length === 0) return { name: "N/A" };
+
+    return studentPerformance.reduce((prev, curr) => {
+      const prevAvg = subjects.reduce((sum, sub) => sum + Number(prev[sub] || 0), 0) / subjects.length;
+      const currAvg = subjects.reduce((sum, sub) => sum + Number(curr[sub] || 0), 0) / subjects.length;
+      return currAvg > prevAvg ? curr : prev;
+    });
+  }, [studentPerformance]);
 
   return (
     <Box sx={{ display: "flex" }}>
@@ -101,7 +118,6 @@ function Reports() {
           Class Performance Report
         </Typography>
 
-        {/* Exam Selector */}
         <Paper sx={{ p: 3, mb: 4 }}>
           <Typography variant="h6" gutterBottom>
             Select Exam Type
@@ -110,44 +126,33 @@ function Reports() {
           <FormControl fullWidth>
             <InputLabel>Exam</InputLabel>
             <Select
-              value={selectedExam}
+              value={selectedExam || ""}
               label="Exam"
-              onChange={(e) => setSelectedExam(e.target.value)}
+              onChange={(e) => setSelectedExam(e.target.value || "Midterm 1")}
             >
-              {Object.keys(examData).map((exam, index) => (
-                <MenuItem key={index} value={exam}>
-                  {exam}
-                </MenuItem>
-              ))}
+              <MenuItem value="Midterm 1">Midterm 1</MenuItem>
+              <MenuItem value="Midterm 2">Midterm 2</MenuItem>
+              <MenuItem value="End Semester Exam">End Semester Exam</MenuItem>
+              <MenuItem value="Assignment">Assignment</MenuItem>
+              <MenuItem value="Quiz">Quiz</MenuItem>
             </Select>
           </FormControl>
         </Paper>
 
-        {/* Summary Cards */}
-        <Grid container spacing={3} mb={4}>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <DashboardCard
-              title="Class Average"
-              value={`${classAverage.toFixed(1)}%`}
-            />
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <DashboardCard title="Class Average" value={`${classAverage.toFixed(1)}%`} />
           </Grid>
 
           <Grid size={{ xs: 12, md: 4 }}>
-            <DashboardCard
-              title="Pass Percentage"
-              value={`${passPercentage}%`}
-            />
+            <DashboardCard title="Pass Percentage" value={`${passPercentage}%`} />
           </Grid>
 
           <Grid size={{ xs: 12, md: 4 }}>
-            <DashboardCard
-              title="Top Performer"
-              value={topPerformer.name}
-            />
+            <DashboardCard title="Top Performer" value={topPerformer?.name || "N/A"} />
           </Grid>
         </Grid>
 
-        {/* Chart */}
         <Paper sx={{ p: 3, mb: 4 }}>
           <Typography variant="h6" gutterBottom>
             {selectedExam} Subject Averages
@@ -163,7 +168,6 @@ function Reports() {
           </ResponsiveContainer>
         </Paper>
 
-        {/* Detailed Table */}
         <Paper sx={{ p: 3 }}>
           <Typography variant="h6" gutterBottom>
             Student Performance Table
@@ -174,20 +178,18 @@ function Reports() {
               <TableHead>
                 <TableRow>
                   <TableCell>Name</TableCell>
-                  {subjects.map((sub, i) => (
-                    <TableCell key={i}>{sub}</TableCell>
+                  {subjects.map((sub) => (
+                    <TableCell key={sub}>{sub}</TableCell>
                   ))}
                 </TableRow>
               </TableHead>
 
               <TableBody>
-                {students.map((student, index) => (
-                  <TableRow key={index}>
+                {studentPerformance.map((student, index) => (
+                  <TableRow key={student.name + index}>
                     <TableCell>{student.name}</TableCell>
-                    {subjects.map((sub, i) => (
-                      <TableCell key={i}>
-                        {student[sub]}
-                      </TableCell>
+                    {subjects.map((sub) => (
+                      <TableCell key={sub}>{student[sub]}</TableCell>
                     ))}
                   </TableRow>
                 ))}

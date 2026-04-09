@@ -1,11 +1,17 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import AdminSidebar from "../components/AdminSidebar";
 import DashboardCard from "../components/DashboardCard";
-import Grid from "@mui/material/Grid";
+import { useData } from "../context/DataContext";
+
+import Grid from "@mui/material/Grid"; // ✅ FIXED
 import {
   Box,
   Typography,
   Paper,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
   TextField,
   Table,
   TableBody,
@@ -31,58 +37,205 @@ import {
   Legend,
 } from "recharts";
 
-/* --- ALL YOUR DATA REMAINS SAME --- */
-const students = [
-  { roll: 101, name: "Raj Kumar", overall: 71.6, grade: "B", attendance: 85 },
-  { roll: 102, name: "Priya Sharma", overall: 92.4, grade: "A+", attendance: 98 },
-  { roll: 103, name: "Amit Patel", overall: 68.2, grade: "C", attendance: 75 },
-  { roll: 104, name: "Neha Singh", overall: 35.8, grade: "F", attendance: 42 },
-  { roll: 105, name: "Vikram Reddy", overall: 56.4, grade: "D", attendance: 68 },
-];
-
-const subjectDistribution = [
-  { subject: "Math", excellent: 35, good: 40, average: 15, poor: 10 },
-  { subject: "Science", excellent: 40, good: 35, average: 15, poor: 10 },
-  { subject: "English", excellent: 30, good: 35, average: 20, poor: 15 },
-  { subject: "History", excellent: 32, good: 38, average: 18, poor: 12 },
-  { subject: "Geography", excellent: 28, good: 40, average: 20, poor: 12 },
-];
-
-const gradeDistribution = [
-  { name: "A+", value: 25 },
-  { name: "A", value: 25 },
-  { name: "B", value: 29 },
-  { name: "C", value: 18 },
-  { name: "D", value: 11 },
-  { name: "F", value: 7 },
-];
-
-const attendanceTrend = [
-  { month: "Sep", attendance: 90 },
-  { month: "Oct", attendance: 88 },
-  { month: "Nov", attendance: 85 },
-  { month: "Dec", attendance: 80 },
-  { month: "Jan", attendance: 84 },
-  { month: "Feb", attendance: 89 },
-];
-
 const COLORS = ["#22C55E", "#16A34A", "#F59E0B", "#EF4444", "#3B82F6", "#9333EA"];
+const subjects = ["Math", "Science", "English", "History"];
+const examTypes = [
+  "Midterm 1",
+  "Midterm 2",
+  "Lab Internal",
+  "Lab External",
+  "End Semester Exam",
+  "Assignment",
+  "Quiz"
+];
+
+const normalizeExamType = (value) => String(value || "Midterm 1").trim().toLowerCase();
+
+const isMatchingExamType = (recordExamType, selectedExamType) =>
+  normalizeExamType(recordExamType) === normalizeExamType(selectedExamType);
 
 function AdminDashboard() {
-  const [search, setSearch] = useState("");
 
-  const filteredStudents = students.filter((student) =>
-    student.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const { students, marks, attendance } = useData();
+  const [search, setSearch] = useState("");
+  const [selectedExam, setSelectedExam] = useState("Midterm 1");
 
   const totalStudents = students.length;
-  const classAverage =
-    students.reduce((sum, s) => sum + s.overall, 0) / students.length;
-  const passPercentage =
-    (students.filter((s) => s.overall >= 40).length / students.length) * 100;
 
-  const topPerformer = students.reduce((prev, curr) =>
-    curr.overall > prev.overall ? curr : prev
+  const examMarks = useMemo(
+    () =>
+      marks.filter((mark) =>
+        isMatchingExamType(mark?.examType || "Midterm 1", selectedExam)
+      ),
+    [marks, selectedExam]
+  );
+
+  const getGradeFromScore = (score) => {
+    if (score >= 90) return "A+";
+    if (score >= 80) return "A";
+    if (score >= 70) return "B";
+    if (score >= 60) return "C";
+    if (score >= 40) return "D";
+    return "F";
+  };
+
+  const examTotalsByEmail = useMemo(() => {
+    const scoreMap = {};
+
+    students.forEach((student) => {
+      const email = String(student?.email || "").toLowerCase().trim();
+      if (email) {
+        scoreMap[email] = { total: 0, count: 0 };
+      }
+    });
+
+    examMarks.forEach((m) => {
+      const email = String(m?.email || m?.student || "").toLowerCase().trim();
+      const score = Number(m?.score ?? m?.marksObtained ?? 0);
+
+      if (!email || !Number.isFinite(score)) return;
+
+      if (!scoreMap[email]) {
+        scoreMap[email] = { total: 0, count: 0 };
+      }
+
+      scoreMap[email].total += score;
+      scoreMap[email].count += 1;
+    });
+
+    const totalMap = {};
+    Object.keys(scoreMap).forEach((email) => {
+      totalMap[email] = scoreMap[email].total;
+    });
+
+    return totalMap;
+  }, [students, examMarks]);
+
+  const getStudentTotal = (student) => {
+    const email = String(student?.email || "").toLowerCase().trim();
+    const emailTotal = examTotalsByEmail[email];
+
+    if (Number.isFinite(emailTotal)) return emailTotal;
+    return Number(student?.overall) || 0;
+  };
+
+  const getStudentAverage = (student) => {
+    return getStudentTotal(student) / (subjects.length || 1);
+  };
+
+  const rankedStudents = useMemo(() => {
+    return students
+      .map((student) => {
+        const email = String(student?.email || "").toLowerCase().trim();
+        return {
+          student,
+          email,
+          total: getStudentTotal(student)
+        };
+      })
+      .sort(
+        (left, right) =>
+          right.total - left.total ||
+          String(left.student?.name || "").localeCompare(String(right.student?.name || ""))
+      );
+  }, [students, examTotalsByEmail]);
+
+  const rankByEmail = useMemo(() => {
+    const rankMap = new Map();
+
+    rankedStudents.forEach((entry, index) => {
+      if (entry.email) {
+        rankMap.set(entry.email, index + 1);
+      }
+    });
+
+    return rankMap;
+  }, [rankedStudents]);
+
+  const classAverage =
+    students.length > 0
+      ? students.reduce((sum, s) => sum + getStudentAverage(s), 0) /
+        students.length
+      : 0;
+
+  const passPercentage =
+    students.length > 0
+      ? (students.filter((s) => getStudentAverage(s) >= 40).length /
+          students.length) *
+        100
+      : 0;
+
+  const topPerformer =
+    students.length > 0
+      ? students.reduce((prev, curr) =>
+          getStudentTotal(curr) > getStudentTotal(prev)
+            ? curr
+            : prev
+        )
+      : { name: "N/A" };
+
+  const gradeCount = { "A+": 0, A: 0, B: 0, C: 0, D: 0, F: 0 };
+
+  students.forEach((s) => {
+    const grade = getGradeFromScore(getStudentAverage(s));
+    gradeCount[grade] += 1;
+  });
+
+  const gradeDistribution = Object.keys(gradeCount).map((g) => ({
+    name: g,
+    value: gradeCount[g]
+  }));
+
+  const subjectDistribution = useMemo(
+    () =>
+      subjects.map((subjectName) => {
+        const subjectMarks = examMarks
+          .filter((m) => m?.subject === subjectName)
+          .map((m) => Number(m?.score ?? m?.marksObtained ?? 0));
+
+        const counters = { excellent: 0, good: 0, average: 0, poor: 0 };
+
+        subjectMarks.forEach((value) => {
+          if (value >= 80) counters.excellent++;
+          else if (value >= 60) counters.good++;
+          else if (value >= 40) counters.average++;
+          else counters.poor++;
+        });
+
+        return {
+          subject: subjectName,
+          ...counters
+        };
+      }),
+    [examMarks]
+  );
+
+  const monthMap = {};
+
+  attendance.forEach((a) => {
+    const date = new Date(a.date);
+    const month = date.toLocaleString("default", { month: "short" });
+
+    if (!monthMap[month]) {
+      monthMap[month] = { present: 0, total: 0 };
+    }
+
+    monthMap[month].total++;
+
+    if (a.status === "Present") {
+      monthMap[month].present++;
+    }
+  });
+
+  const attendanceTrend = Object.keys(monthMap).map((m) => ({
+    month: m,
+    attendance:
+      (monthMap[m].present / monthMap[m].total) * 100
+  }));
+
+  const filteredRankedStudents = rankedStudents.filter((entry) =>
+    String(entry.student?.name || "").toLowerCase().includes(search.toLowerCase()) ||
+    String(entry.student?.email || "").toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -95,8 +248,29 @@ function AdminDashboard() {
         </Typography>
 
         <Typography color="text.secondary" mb={4}>
-          Complete overview of student performance and analytics
+          Complete overview of student performance and analytics for {selectedExam}
         </Typography>
+
+        <Paper sx={{ p: 3, mb: 4 }}>
+          <Typography variant="h6" gutterBottom>
+            Select Exam Type
+          </Typography>
+
+          <FormControl fullWidth>
+            <InputLabel>Exam</InputLabel>
+            <Select
+              value={selectedExam}
+              label="Exam"
+              onChange={(e) => setSelectedExam(e.target.value || "Midterm 1")}
+            >
+              {examTypes.map((examType) => (
+                <MenuItem key={examType} value={examType}>
+                  {examType}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Paper>
 
         {/* Summary Cards */}
         <Grid container spacing={3}>
@@ -198,6 +372,7 @@ function AdminDashboard() {
               <TableHead>
                 <TableRow>
                   <TableCell>Roll No</TableCell>
+                  <TableCell>Rank</TableCell>
                   <TableCell>Name</TableCell>
                   <TableCell>Overall %</TableCell>
                   <TableCell>Grade</TableCell>
@@ -205,15 +380,22 @@ function AdminDashboard() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredStudents.map((student, index) => (
-                  <TableRow key={index}>
+                {filteredRankedStudents.map((entry) => {
+                  const student = entry.student;
+                  const email = String(student?.email || "").toLowerCase().trim();
+                  const rank = rankByEmail.get(email);
+
+                  return (
+                  <TableRow key={student?.email || student?.roll || entry.email}>
                     <TableCell>{student.roll}</TableCell>
+                    <TableCell>{rank ? `#${rank}` : "-"}</TableCell>
                     <TableCell>{student.name}</TableCell>
-                    <TableCell>{student.overall}%</TableCell>
-                    <TableCell>{student.grade}</TableCell>
+                    <TableCell>{getStudentAverage(student).toFixed(1)}%</TableCell>
+                    <TableCell>{student.grade || getGradeFromScore(getStudentAverage(student))}</TableCell>
                     <TableCell>{student.attendance}%</TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </TableContainer>
@@ -224,3 +406,4 @@ function AdminDashboard() {
 }
 
 export default AdminDashboard;
+

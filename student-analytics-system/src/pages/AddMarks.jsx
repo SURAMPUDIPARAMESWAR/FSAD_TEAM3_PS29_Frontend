@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import AdminSidebar from "../components/AdminSidebar";
 import Grid from "@mui/material/Grid";
 import {
@@ -11,121 +11,205 @@ import {
   FormControl,
   InputLabel,
   Button,
-  Divider,
   Alert
 } from "@mui/material";
 
-const studentsList = ["Raj Kumar", "Priya Sharma", "Amit Patel", "Neha Singh"];
 const subjectsList = ["Math", "Science", "English", "History"];
 
 function AddMarks() {
   const fileInputRef = useRef(null);
 
+  const [students, setStudents] = useState([]);
+  const [marks, setMarks] = useState([]);
+
   const [formData, setFormData] = useState({
-    student: "",
+    student: "", // student email
     subject: "",
     examType: "",
     marksObtained: "",
-    maxMarks: 100,
-    examDate: "",
+    maxMarks: "",
+    examDate: ""
   });
 
-  const [entries, setEntries] = useState([]);
+  useEffect(() => {
+    fetchStudents();
+    fetchMarks();
+  }, []);
 
-  const percentage =
-    formData.marksObtained && formData.maxMarks
-      ? ((formData.marksObtained / formData.maxMarks) * 100).toFixed(1)
-      : "";
+  const getAuthHeaders = () => ({
+    Authorization: `Bearer ${localStorage.getItem("token")}`
+  });
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+  const handleUnauthorized = () => {
+    alert("Session expired");
+    localStorage.clear();
+    window.location.href = "/login";
   };
 
-  const handleSubmit = () => {
-    if (!formData.student || !formData.subject || !formData.examType) {
+  const fetchStudents = async () => {
+    try {
+      const res = await fetch("http://localhost:1234/api/students", {
+        headers: getAuthHeaders()
+      });
+
+      if (res.status === 401) return handleUnauthorized();
+
+      const data = await res.json();
+      setStudents(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error(err);
+      setStudents([]);
+    }
+  };
+
+  const fetchMarks = async () => {
+    try {
+      const res = await fetch("http://localhost:1234/api/marks", {
+        headers: getAuthHeaders()
+      });
+
+      if (res.status === 401) return handleUnauthorized();
+
+      const data = await res.json();
+      setMarks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error(err);
+      setMarks([]);
+    }
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const percentage =
+    formData.marksObtained &&
+    formData.maxMarks &&
+    Number(formData.maxMarks) > 0
+      ? ((Number(formData.marksObtained) / Number(formData.maxMarks)) * 100).toFixed(2)
+      : "";
+
+  const handleSubmit = async () => {
+    if (!formData.student || !formData.subject || !formData.marksObtained) {
       alert("Please fill all required fields");
       return;
     }
 
-    const newEntry = {
-      ...formData,
-      percentage,
-    };
+    try {
+      const payload = {
+        email: formData.student,
+        subject: formData.subject,
+        examType: formData.examType || "Midterm 1",
+        score: Number(formData.marksObtained)
+      };
 
-    setEntries([newEntry, ...entries]);
+      const res = await fetch("http://localhost:1234/api/marks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify(payload)
+      });
 
-    alert("Marks added successfully!");
+      if (res.status === 401) return handleUnauthorized();
 
-    setFormData({
-      student: "",
-      subject: "",
-      examType: "",
-      marksObtained: "",
-      maxMarks: 100,
-      examDate: "",
-    });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(errData?.message || "Failed to add marks");
+        return;
+      }
+
+      alert("Marks added successfully!");
+      setFormData({
+        student: "",
+        subject: "",
+        examType: "",
+        marksObtained: "",
+        maxMarks: "",
+        examDate: ""
+      });
+      fetchMarks();
+    } catch (err) {
+      console.error(err);
+      alert("Server error");
+    }
   };
 
-  const handleCSVUpload = (event) => {
-    const file = event.target.files[0];
+  const handleCSVUpload = async (e) => {
+    const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith(".csv")) {
-      alert("Please upload a valid CSV file");
-      return;
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(Boolean);
+
+      if (lines.length < 2) {
+        alert("CSV has no rows");
+        return;
+      }
+
+      // accepted headers: email,subject,score[,examType] OR student,subject,marksObtained[,examType]
+      const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+      const emailIdx = headers.indexOf("email");
+      const studentIdx = headers.indexOf("student");
+      const subjectIdx = headers.indexOf("subject");
+      const scoreIdx = headers.indexOf("score");
+      const marksIdx = headers.indexOf("marksobtained");
+      const examTypeIdx = headers.indexOf("examtype");
+
+      if (subjectIdx === -1 || (emailIdx === -1 && studentIdx === -1) || (scoreIdx === -1 && marksIdx === -1)) {
+        alert("CSV headers must include email/student, subject, score/marksObtained");
+        return;
+      }
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(",").map((c) => c.trim());
+        const email = emailIdx !== -1 ? cols[emailIdx] : cols[studentIdx];
+        const subject = cols[subjectIdx];
+        const scoreRaw = scoreIdx !== -1 ? cols[scoreIdx] : cols[marksIdx];
+        const examType = examTypeIdx !== -1 ? cols[examTypeIdx] : "Midterm 1";
+        const score = Number(scoreRaw);
+
+        if (!email || !subject || Number.isNaN(score)) continue;
+
+        await fetch("http://localhost:1234/api/marks", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+          },
+          body: JSON.stringify({ email, subject, score, examType: examType || "Midterm 1" })
+        });
+      }
+
+      alert("CSV upload processed");
+      fetchMarks();
+    } catch (err) {
+      console.error(err);
+      alert("CSV upload failed");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
-
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-      const text = e.target.result;
-      const rows = text.split("\n").slice(1);
-
-      const parsedEntries = rows
-        .map((row) => {
-          const columns = row.split(",");
-          if (columns.length < 6) return null;
-
-          const [student, subject, examType, marksObtained, maxMarks, examDate] =
-            columns;
-
-          return {
-            student: student?.trim(),
-            subject: subject?.trim(),
-            examType: examType?.trim(),
-            marksObtained: Number(marksObtained),
-            maxMarks: Number(maxMarks),
-            examDate: examDate?.trim(),
-            percentage: (
-              (Number(marksObtained) / Number(maxMarks)) *
-              100
-            ).toFixed(1),
-          };
-        })
-        .filter(Boolean);
-
-      setEntries((prev) => [...parsedEntries, ...prev]);
-      alert("CSV uploaded successfully!");
-    };
-
-    reader.readAsText(file);
   };
+
+  const entries = marks;
 
   return (
     <Box sx={{ display: "flex" }}>
       <AdminSidebar />
 
       <Box sx={{ flexGrow: 1, p: 4 }}>
-        {/* Header */}
         <Box
           sx={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            mb: 4,
+            mb: 4
           }}
         >
           <Box>
@@ -140,7 +224,7 @@ function AddMarks() {
           <Button
             variant="contained"
             color="success"
-            onClick={() => fileInputRef.current.click()}
+            onClick={() => fileInputRef.current?.click()}
           >
             Bulk Upload CSV
           </Button>
@@ -155,7 +239,6 @@ function AddMarks() {
         </Box>
 
         <Grid container spacing={4}>
-          {/* LEFT FORM */}
           <Grid size={{ xs: 12, md: 6 }}>
             <Paper sx={{ p: 3 }}>
               <Typography variant="h6" gutterBottom>
@@ -173,9 +256,9 @@ function AddMarks() {
                       onChange={handleChange}
                     >
                       <MenuItem value="">Select a student</MenuItem>
-                      {studentsList.map((s, i) => (
-                        <MenuItem key={i} value={s}>
-                          {s}
+                      {students.map((s, i) => (
+                        <MenuItem key={s._id || s.email || i} value={s.email}>
+                          {s.name} ({s.email})
                         </MenuItem>
                       ))}
                     </Select>
@@ -192,8 +275,8 @@ function AddMarks() {
                       onChange={handleChange}
                     >
                       <MenuItem value="">Select subject</MenuItem>
-                      {subjectsList.map((s, i) => (
-                        <MenuItem key={i} value={s}>
+                      {subjectsList.map((s) => (
+                        <MenuItem key={s} value={s}>
                           {s}
                         </MenuItem>
                       ))}
@@ -203,11 +286,11 @@ function AddMarks() {
 
                 <Grid size={{ xs: 12, md: 6 }}>
                   <FormControl fullWidth>
-                    <InputLabel>Exam Type *</InputLabel>
+                    <InputLabel>Exam Type</InputLabel>
                     <Select
                       name="examType"
                       value={formData.examType}
-                      label="Exam Type *"
+                      label="Exam Type"
                       onChange={handleChange}
                     >
                       <MenuItem value="">Select type</MenuItem>
@@ -215,9 +298,7 @@ function AddMarks() {
                       <MenuItem value="Midterm 2">Midterm 2</MenuItem>
                       <MenuItem value="Lab Internal">Lab Internal</MenuItem>
                       <MenuItem value="Lab External">Lab External</MenuItem>
-                      <MenuItem value="End Semester Exam">
-                        End Semester Exam
-                      </MenuItem>
+                      <MenuItem value="End Semester Exam">End Semester Exam</MenuItem>
                       <MenuItem value="Assignment">Assignment</MenuItem>
                       <MenuItem value="Quiz">Quiz</MenuItem>
                     </Select>
@@ -239,7 +320,7 @@ function AddMarks() {
                   <TextField
                     fullWidth
                     type="number"
-                    label="Maximum Marks *"
+                    label="Maximum Marks"
                     name="maxMarks"
                     value={formData.maxMarks}
                     onChange={handleChange}
@@ -255,23 +336,20 @@ function AddMarks() {
                   />
                 </Grid>
 
-                <Grid size={{ xs: 12 }}>
+                <Grid size={12}>
                   <TextField
                     fullWidth
                     type="date"
                     name="examDate"
-                    label="Exam Date *"
+                    label="Exam Date"
                     InputLabelProps={{ shrink: true }}
                     value={formData.examDate}
                     onChange={handleChange}
                   />
                 </Grid>
 
-                <Grid size={{ xs: 12 }}>
-                  <Button
-                    variant="contained"
-                    onClick={handleSubmit}
-                  >
+                <Grid size={12}>
+                  <Button variant="contained" onClick={handleSubmit}>
                     + Add Marks Entry
                   </Button>
                 </Grid>
@@ -279,7 +357,6 @@ function AddMarks() {
             </Paper>
           </Grid>
 
-          {/* RIGHT SIDE ENTRIES */}
           <Grid size={{ xs: 12, md: 5 }}>
             <Paper sx={{ p: 3 }}>
               <Typography variant="h6" gutterBottom>
@@ -291,17 +368,21 @@ function AddMarks() {
               ) : (
                 entries.map((entry, index) => (
                   <Paper
-                    key={index}
+                    key={entry._id || index}
                     sx={{ p: 2, mb: 2, backgroundColor: "#f9fafb" }}
                   >
                     <Typography fontWeight="bold">
-                      {entry.student}
+                      {entry.studentName || entry.email || "Student"}
                     </Typography>
                     <Typography variant="body2">
-                      {entry.subject} - {entry.examType}
+                      {entry.subject || "-"} {entry.examType ? `- ${entry.examType}` : ""}
                     </Typography>
                     <Typography color="primary">
-                      {entry.percentage}%
+                      {entry.percentage != null
+                        ? `${entry.percentage}%`
+                        : entry.score != null
+                        ? entry.score
+                        : "-"}
                     </Typography>
                   </Paper>
                 ))
