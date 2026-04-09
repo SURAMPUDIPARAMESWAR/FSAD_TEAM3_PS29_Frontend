@@ -143,29 +143,73 @@ function StudentManagement() {
   };
 
   const handleDelete = async (student) => {
-    if (!window.confirm("Are you sure?")) return;
+    if (!student) return;
+
+    const studentName = student?.name || student?.email || "this student";
+    if (!window.confirm(`Delete ${studentName}? This action cannot be undone.`)) return;
 
     try {
+      setError("");
       const id = resolveStudentDbId(student);
+      const originalEmail = String(student?.email || "").trim();
+
       if (!id) {
-        setError("Student record is missing database id. Please reload and try again.");
-        return;
+        if (!originalEmail) {
+          setError("Student record is missing a database id. Please reload and try again.");
+          return;
+        }
       }
 
-      const res = await fetch(`${API_BASE}/api/students/${id}`, {
-        method: "DELETE",
-        headers: getAuthHeaders()
-      });
+      const candidateRequests = [];
 
-      if (res.status === 401) return handleUnauthorized();
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status}: ${txt.slice(0, 120)}`);
+      if (id) {
+        candidateRequests.push({ url: `${API_BASE}/api/students/${id}` });
       }
 
-      setStudents((prev) => prev.filter((s) => (s?._id || s?.id) !== id));
+      if (originalEmail) {
+        const encodedEmail = encodeURIComponent(originalEmail);
+        candidateRequests.push({ url: `${API_BASE}/api/students/email/${encodedEmail}` });
+      }
+
+      candidateRequests.push({ url: `${API_BASE}/api/students` });
+
+      let deleted = false;
+      let lastFailure = "";
+
+      for (const req of candidateRequests) {
+        const res = await fetch(req.url, {
+          method: "DELETE",
+          headers: getAuthHeaders()
+        });
+
+        if (res.status === 401) return handleUnauthorized();
+
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          lastFailure = `HTTP ${res.status}: ${txt.slice(0, 120)}`;
+          continue;
+        }
+
+        deleted = true;
+        break;
+      }
+
+      if (!deleted) {
+        throw new Error(lastFailure || "No compatible delete endpoint found.");
+      }
+
+      setStudents((prev) =>
+        prev.filter((s) => {
+          const sameId = id && (s?._id || s?.id) === id;
+          const sameEmail =
+            originalEmail &&
+            String(s?.email || "").toLowerCase().trim() === originalEmail.toLowerCase().trim();
+
+          return !sameId && !sameEmail;
+        })
+      );
       setSelectedStudent(null);
+      await fetchStudents();
     } catch (e) {
       console.error("Delete failed:", e);
       setError("Failed to delete student.");
