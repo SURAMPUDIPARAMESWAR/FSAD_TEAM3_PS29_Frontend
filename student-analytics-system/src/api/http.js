@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:1234";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://fsad-team3-ps29-backend.onrender.com";
 
 export const api = axios.create({
   baseURL: API_BASE,
