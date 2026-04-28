@@ -5,6 +5,7 @@ import { getTheme } from "./theme";
 
 import { DataProvider } from "./context/DataContext";
 
+import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
@@ -38,10 +39,11 @@ function App() {
           <Routes>
 
             {/* DEFAULT PAGE */}
-            <Route path="/" element={<Register />} />
+            <Route path="/" element={<Home />} />
 
             {/* AUTH */}
             <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
 
             {/* ADMIN */}
             <Route path="/admin" element={<AdminDashboard />} />
